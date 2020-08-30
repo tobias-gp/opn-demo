@@ -84,61 +84,69 @@ pp_model.load_state_dict(torch.load(os.path.join('TCN.pth')), strict=False)
 pp_model.eval() 
 
 
-################### Inference
-MEM_EVERY = 5 # every 5 frame as memory frames
-comps = torch.zeros_like(frames)
-ppeds = torch.zeros_like(frames)
+start_time = time.time()
 
-# memory encoding 
-midx = list( range(0, T, MEM_EVERY) )
-with torch.no_grad():
-    mkey, mval, mhol = model(frames[:,:,midx], valids[:,:,midx], dists[:,:,midx])
+for j in range(0, 10): 
+    print("Cycle %i" % j)
 
-for f in range(T):
-    # memory selection
-    if f in midx:
-        ridx = [i for i in range(len(midx)) if i != int(f/MEM_EVERY)]
-    else:
-        ridx = list(range(len(midx)))
+    ################### Inference
+    MEM_EVERY = 5 # every 5 frame as memory frames
+    comps = torch.zeros_like(frames)
+    ppeds = torch.zeros_like(frames)
 
-    fkey, fval, fhol = mkey[:,:,ridx], mval[:,:,ridx], mhol[:,:,ridx]
-    # inpainting..
-    for r in range(999): 
-        if r == 0:
-            comp = frames[:,:,f]
-            dist = dists[:,:,f]
-        with torch.no_grad(): 
-            comp, dist = model(fkey, fval, fhol, comp, valids[:,:,f], dist)
-        
-        # update
-        comp, dist = comp.detach(), dist.detach()
-        if torch.sum(dist).item() == 0:
-            break
-        
-    comps[:,:,f] = comp
 
-# post-processing...
-ppeds[:,:,0] = comps[:,:,0]
-hidden = None
-for f in range(T):
+    # memory encoding 
+    midx = list( range(0, T, MEM_EVERY) )
     with torch.no_grad():
-        pped,  hidden =\
-                pp_model(ppeds[:,:,f-1], holes[:,:,f-1], comps[:,:,f], holes[:,:,f], hidden)
-        ppeds[:,:,f] = pped
+        mkey, mval, mhol = model(frames[:,:,midx], valids[:,:,midx], dists[:,:,midx])
 
-for f in range(T):
-    # visualize..
-    est = (ppeds[0,:,f].permute(1,2,0).detach().cpu().numpy() * 255.).astype(np.uint8)
-    true = (frames[0,:,f].permute(1,2,0).detach().cpu().numpy() * 255.).astype(np.uint8) # h,w,3
-    mask = (dists[0,0,f].detach().cpu().numpy() > 0).astype(np.uint8) # h,w,1
-    ov_true = overlay_davis(true, mask, colors=[[0,0,0],[0,100,100]], cscale=2, alpha=0.4)
+    for f in range(T):
+        # memory selection
+        if f in midx:
+            ridx = [i for i in range(len(midx)) if i != int(f/MEM_EVERY)]
+        else:
+            ridx = list(range(len(midx)))
 
-    canvas = np.concatenate([ov_true, est], axis=0)
+        fkey, fval, fhol = mkey[:,:,ridx], mval[:,:,ridx], mhol[:,:,ridx]
+        # inpainting..
+        for r in range(999): 
+            if r == 0:
+                comp = frames[:,:,f]
+                dist = dists[:,:,f]
+            with torch.no_grad(): 
+                comp, dist = model(fkey, fval, fhol, comp, valids[:,:,f], dist)
+            
+            # update
+            comp, dist = comp.detach(), dist.detach()
+            if torch.sum(dist).item() == 0:
+                break
+            
+        comps[:,:,f] = comp
 
-    save_path = os.path.join('Video_results', seq_name)
-    if not os.path.exists(save_path):
-        os.makedirs(save_path)
-    canvas = Image.fromarray(canvas)
-    canvas.save(os.path.join(save_path, '{:05d}.jpg'.format(f)))
+    # post-processing...
+    ppeds[:,:,0] = comps[:,:,0]
+    hidden = None
+    for f in range(T):
+        with torch.no_grad():
+            pped,  hidden =\
+                    pp_model(ppeds[:,:,f-1], holes[:,:,f-1], comps[:,:,f], holes[:,:,f], hidden)
+            ppeds[:,:,f] = pped
 
-print('Results are saved: ./{}'.format(save_path))
+    for f in range(T):
+        # visualize..
+        est = (ppeds[0,:,f].permute(1,2,0).detach().cpu().numpy() * 255.).astype(np.uint8)
+        true = (frames[0,:,f].permute(1,2,0).detach().cpu().numpy() * 255.).astype(np.uint8) # h,w,3
+        mask = (dists[0,0,f].detach().cpu().numpy() > 0).astype(np.uint8) # h,w,1
+        ov_true = overlay_davis(true, mask, colors=[[0,0,0],[0,100,100]], cscale=2, alpha=0.4)
+
+        canvas = np.concatenate([ov_true, est], axis=0)
+
+        save_path = os.path.join('Video_results', seq_name)
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+        canvas = Image.fromarray(canvas)
+        canvas.save(os.path.join(save_path, '{:05d}.jpg'.format(f)))
+
+    print('Results are saved: ./{}'.format(save_path))
+
+print("Completed 10 cycles in %f s" % (time.time() - start_time))

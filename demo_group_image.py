@@ -77,38 +77,51 @@ model.eval()
 
 ################### Inference
 # memory encoding 
-midx = list( range(0, T) )
-with torch.no_grad():
-    mkey, mval, mhol = model(frames[:,:,midx], valids[:,:,midx], dists[:,:,midx])
 
-for f in range(T):
-    # memory selection
-    ridx = [i for i in range(len(midx)) if i != f] # memory minus self
-    fkey, fval, fhol = mkey[:,:,ridx], mval[:,:,ridx], mhol[:,:,ridx]
-    # inpainting..
-    for r in range(999): 
-        if r == 0:
-            comp = frames[:,:,f]
-            dist = dists[:,:,f]
-        with torch.no_grad(): 
-            comp, dist = model(fkey, fval, fhol, comp, valids[:,:,f], dist)
-        
-        # update
-        comp, dist = comp.detach(), dist.detach()
-        if torch.sum(dist).item() == 0:
-            break
-        
-    # visualize..
-    est = (comp[0].permute(1,2,0).detach().cpu().numpy() * 255.).astype(np.uint8)
-    true = (frames[0,:,f].permute(1,2,0).detach().cpu().numpy() * 255.).astype(np.uint8) # h,w,3
-    mask = (dists[0,0,f].detach().cpu().numpy() > 0).astype(np.uint8) # h,w,1
-    ov_true = overlay_davis(true, mask, colors=[[0,0,0],[100,100,0]], cscale=2, alpha=0.4)
+import time
+start_time = time.time()
 
-    canvas = np.concatenate([ov_true, est], axis=0)
-    save_path = os.path.join('Image_results', seq_name)
-    if not os.path.exists(save_path):
-        os.makedirs(save_path)
-    canvas = Image.fromarray(canvas)
-    canvas.save(os.path.join(save_path, 'res_{}.jpg'.format(f)))
+
+for j in range(0, 100): 
+    print("Cycle %i" % j)
+
+    midx = list( range(0, T) )
+    with torch.no_grad():
+        mkey, mval, mhol = model(frames[:,:,midx], valids[:,:,midx], dists[:,:,midx])
+
+    for f in range(T):
+
+        # memory selection
+        ridx = [i for i in range(len(midx)) if i != f] # memory minus self
+        fkey, fval, fhol = mkey[:,:,ridx], mval[:,:,ridx], mhol[:,:,ridx]
+        # inpainting..
+        for r in range(999): 
+            if r == 0:
+                comp = frames[:,:,f]
+                dist = dists[:,:,f]
+            with torch.no_grad(): 
+                comp, dist = model(fkey, fval, fhol, comp, valids[:,:,f], dist)
+            
+            # update
+            comp, dist = comp.detach(), dist.detach()
+            if torch.sum(dist).item() == 0:
+                break
+            
+        # visualize..
+        est = (comp[0].permute(1,2,0).detach().cpu().numpy() * 255.).astype(np.uint8)
+        true = (frames[0,:,f].permute(1,2,0).detach().cpu().numpy() * 255.).astype(np.uint8) # h,w,3
+        mask = (dists[0,0,f].detach().cpu().numpy() > 0).astype(np.uint8) # h,w,1
+        ov_true = overlay_davis(true, mask, colors=[[0,0,0],[100,100,0]], cscale=2, alpha=0.4)
+
+        canvas = np.concatenate([ov_true, est], axis=0)
+        save_path = os.path.join('Image_results', seq_name)
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+        canvas = Image.fromarray(canvas)
+        canvas.save(os.path.join(save_path, 'res_{}.jpg'.format(f)))
+
+end_time = time.time()
+delta = (end_time - start_time) / 100
+print("Delta: %f" % delta)
 
 print('Results are saved: ./{}'.format(save_path))
